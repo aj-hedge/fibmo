@@ -8,12 +8,14 @@ from reproject import reproject_interp
 from matplotlib import get_backend
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider, Cursor, TextBox, Button, CheckButtons, RadioButtons
+from matplotlib.image import AxesImage
 from matplotlib.contour import QuadContourSet
 import tkinter
 from tkinter import filedialog, simpledialog
 from itertools import cycle
 import argparse
 from typing import Callable, Any
+from contextlib import contextmanager
 import sys, re
 from os.path import isfile
 
@@ -54,6 +56,9 @@ class ImageLayer(object):
                 self.slice_arg1, self.slice_arg2 = self.spectral_axis_len // 2, self.spectral_axis_len // 1
                 self.slice_func = self.slice_func_window
                 # For example, a width of 100% of the spectral axis length
+        else:
+            self.slice_type = 'none'
+            self.slice_func = self.slice_func_none
         self.data_flat = None
         if self.image_type == 'cube':
             self.data_flat = self.slice_func()
@@ -168,9 +173,18 @@ Plot Args: {self.plot_args}
             case _:
                 raise ValueError(f"{slice_type} is not a supported slicing method.")
         # Update the flat data being stored
-        self.data_flat = self.slice_func()
+        if self.image_type == 'cube':
+            self.data_flat = self.slice_func()
+        else:
+            self.data_flat = self.data
         self.vmin = self.set_vmin(self.vmin_pc)
         self.vmax = self.set_vmax(self.vmax_pc)
+
+    def set_colours(self, colours):
+        self.plot_args['colors'] = colours
+
+    def set_cmap(self, cmap):
+        self.plot_args['cmap'] = cmap
 
     def get_display_data(self) -> np.ndarray:
         return self.data_flat
@@ -181,10 +195,15 @@ Plot Args: {self.plot_args}
     ##### PLOT METHODS #####
     def plot_layer(self, ax):
         if self.is_bkg_layer:
-            self.artist = ax.imshow(self.data_flat, origin='lower', cmap=self.plot_args['cmap'], vmin=self.vmin, vmax=self.vmax)
+            if isinstance(self.artist, AxesImage):
+                # self.artist.set_data(self.data_flat)  # No need to set the data if it is already there!
+                self.artist.set_clim(vmin=self.vmin, vmax=self.vmax)
+                self.artist.set_cmap(cmap=self.plot_args['cmap'])
+            else:
+                self.artist = ax.imshow(self.data_flat, origin='lower', cmap=self.plot_args['cmap'], vmin=self.vmin, vmax=self.vmax)
         else:
             if isinstance(self.artist, QuadContourSet):
-                # Clean up unnecessary contours before plotting more
+                # Clean up unnecessary contours before plotting more. No way to set the required args for existing Contours.
                 self.artist.remove()
             
             self.artist = ax.contour(self.data_flat, colors=self.plot_args['colors'], linewidths=self.plot_args['linewidths'],
@@ -195,7 +214,7 @@ Plot Args: {self.plot_args}
 class LayerManager(object):
     ##### CONSTRUCTORS #####
     def __init__(self, fig: plt.Figure, ax, main_ax_region: list=[0.25, 0.2, 0.75, 0.8],
-                 colour_wheel: list=['hotpink','fuchsia','darkviolet','mediumslateblue','royalblue','deepskyblue','cyan',
+                 colour_wheel: list=['fuchsia','darkviolet','mediumslateblue','royalblue','deepskyblue','cyan',
                                      'aquamarine','lime','gold','lightsalmon','indianred','dimgrey','whitesmoke']):
         self.layers: list[ImageLayer] = list()
         self.current_layer: ImageLayer = None
@@ -278,7 +297,6 @@ handle_sliders_textboxes: {self.handle_spectral_sliders_textboxes}
         # self.radiobuttons_layers.set_active(self.layers.index(self.current_layer))
         self.API_update_widgets_callback()
         self.handle_spectral_sliders_textboxes = self.API_update_spectral_sliders_callback()
-        print(self.current_layer.__repr__())
     
     def set_background_layer(self, layer: ImageLayer):
         if layer:
@@ -354,7 +372,7 @@ handle_sliders_textboxes: {self.handle_spectral_sliders_textboxes}
             is_bkg_layer = True
         layer = ImageLayer(fits_path, hdu, name=name, image_type='auto', is_bkg_layer=is_bkg_layer, vmin_pc=vmin_pc, vmax_pc=vmax_pc,
                            levels_factor=levels_factor, levels_base=levels_base, slice_type=slice_type, ra_direction=self.ra_direction,
-                           plot_args=plot_args)
+                           plot_args=plot_args.copy())
         self.layers.append(layer)
         self.set_current_layer(layer)
         if self.current_layer.is_bkg_layer:
@@ -503,6 +521,14 @@ def info_dialog_wrapper(**dialog_kwargs):
     root.destroy()
     return
 
+@contextmanager
+def eventsoff(widget):
+    widget.eventson = False
+    try:
+        yield   # Allow the code inside the 'with' block to execute
+    finally:
+        widget.eventson = True
+
 
 # Assign args
 interactive_type = args.type
@@ -564,7 +590,7 @@ ax_textbox_coords = plt.axes([0.82, 0.85, 0.15, 0.04], facecolor='lightgoldenrod
 ax_textbox_coords_deg = plt.axes([0.84, 0.80, 0.13, 0.04], facecolor='lightgoldenrodyellow')
 ax_button_save = plt.axes([0.82, 0.76, 0.15, 0.03])
 ax_radiobutton_layers = plt.axes([0.02, 0.1, 0.16, 0.75], facecolor='lightgoldenrodyellow')
-fig.text(0.04, 0.86, "Layers", fontsize='xx-large', fontweight='heavy')
+ax_radiobutton_layers.set_title("Layers", fontsize='xx-large', fontweight='heavy')
 # ax_button_refresh_layers_list = plt.axes([0.1, 0.91, 0.1, 0.03], facecolor='lightgoldenrodyellow')
 ax_slider_1 = plt.axes([0.3, 0.1, 0.3, 0.03], facecolor='lightgoldenrodyellow')
 ax_slider_2 = plt.axes([0.3, 0.05, 0.3, 0.03], facecolor='lightgoldenrodyellow')
@@ -575,9 +601,11 @@ ax_textbox_vmax = plt.axes([0.82, 0.64, 0.1, 0.03], facecolor='lightgoldenrodyel
 ax_button_add_layer = plt.axes([0.82, 0.60, 0.1, 0.03], facecolor='lightgoldenrodyellow')
 ax_button_remove_layer = plt.axes([0.82, 0.56, 0.1, 0.03], facecolor='lightgoldenrodyellow')
 ax_button_send_to_back = plt.axes([0.82, 0.52, 0.1, 0.03], facecolor='lightgoldenrodyellow')
-ax_textbox_contour_factor = plt.axes([0.82, 0.48, 0.1, 0.03], facecolor='lightgoldenrodyellow')
-ax_textbox_contour_base = plt.axes([0.82, 0.44, 0.1, 0.03], facecolor='lightgoldenrodyellow')
-ax_radiobutton_slice_type = plt.axes([0.82, 0.3, 0.1, 0.1], facecolor='lightgoldenrodyellow')
+ax_textbox_contour_factor = plt.axes([0.82, 0.43, 0.1, 0.03], facecolor='lightgoldenrodyellow')
+ax_textbox_contour_factor.set_title("Contours are defined as\n" + "$\\mathtt{factor}\\times RMS\\times\\mathtt{base}^{0,1,2}$")
+ax_textbox_contour_base = plt.axes([0.82, 0.39, 0.1, 0.03], facecolor='lightgoldenrodyellow')
+ax_radiobutton_slice_type = plt.axes([0.82, 0.25, 0.1, 0.1], facecolor='lightgoldenrodyellow')
+ax_radiobutton_slice_type.set_title('Slice type')
 
 
 ##### WIDGET HANDLES AND FUNCTIONS ################################################################################
@@ -635,6 +663,10 @@ def create_radiobuttons_layers_list():
 
 # Setup first slice sliders
 def create_spectral_sliders_textboxes():
+    ax_slider_1.set_visible(True)
+    ax_slider_2.set_visible(True)
+    ax_textbox_1.set_visible(True)
+    ax_textbox_2.set_visible(True)
     ax_slider_1.clear()
     ax_slider_2.clear()
     ax_textbox_1.clear()
@@ -692,6 +724,12 @@ def create_spectral_sliders_textboxes():
 
         textbox_1.on_submit(update_from_textbox_arg1)
         textbox_2.on_submit(update_from_textbox_arg2)
+
+    else:
+        ax_slider_1.set_visible(False)
+        ax_slider_2.set_visible(False)
+        ax_textbox_1.set_visible(False)
+        ax_textbox_2.set_visible(False)
 
     return slider_1, slider_2, textbox_1, textbox_2
 
@@ -770,28 +808,58 @@ def send_layer_to_back(event):
 button_send_to_back.on_clicked(send_layer_to_back)
 
 # Add textboxes for contour levels factor and base
+textbox_contour_factor = TextBox(ax_textbox_contour_factor, 'Contour Factor', initial=str(3))
+textbox_contour_base = TextBox(ax_textbox_contour_base, 'Contour Base', initial=str(np.sqrt(2)))
 
+def update_contours(text):
+    current_layer = layer_manager.get_current_layer()
+    current_layer.set_levels_factor(float(textbox_contour_factor.text))
+    current_layer.set_levels_base(float(textbox_contour_base.text))
+    layer_manager.update_plot()
 
-
+textbox_contour_factor.on_submit(update_contours)
+textbox_contour_base.on_submit(update_contours)
 
 # Add RadioButtons to switch slice_type of 3D data layer
+radiobutton_slice_type = RadioButtons(ax_radiobutton_slice_type,['none','manual','window'],
+                                      label_props={'fontsize': [16]}, radio_props={'s': [48]})
 
+# Update plot to selected layer
+def update_slice_type(label):
+    if layer_manager.get_current_layer().image_type == 'image':
+        label = 'none'
+        with eventsoff(radiobutton_slice_type):
+            radiobutton_slice_type.set_active(0)
+    layer_manager.get_current_layer().set_slice_type(label)
+    layer_manager.set_handle_spectral_sliders_textboxes(layer_manager.API_update_spectral_sliders_callback())
 
+radiobutton_slice_type.on_clicked(update_slice_type)
 
 
 ##### END WIDGET DEFNITIONS ###################################################################################
 
 def update_widgets_visibility():
     current_layer = layer_manager.get_current_layer()
-    if current_layer.image_type == 'cube' and current_layer.slice_type != 'none':
-        ax_slider_1.set_visible(True)
-        ax_slider_2.set_visible(True)
-        # and set to the layer's previously stored values
-        # layer_manager.handle_spectral_sliders_textboxes[0].set_val(current_layer.slice_arg1)
-        # layer_manager.handle_spectral_sliders_textboxes[1].set_val(current_layer.slice_arg2)
-        ax_textbox_1.set_visible(True)
-        ax_textbox_2.set_visible(True)
-    else:
+    if current_layer.image_type == 'cube':
+        current_slice_type = ['none', 'manual', 'window'].index(current_layer.slice_type)
+        with eventsoff(radiobutton_slice_type):
+            radiobutton_slice_type.set_active(current_slice_type)
+        if current_layer.slice_type != 'none':
+            ax_slider_1.set_visible(True)
+            ax_slider_2.set_visible(True)
+            # and set to the layer's previously stored values
+            # layer_manager.handle_spectral_sliders_textboxes[0].set_val(current_layer.slice_arg1)
+            # layer_manager.handle_spectral_sliders_textboxes[1].set_val(current_layer.slice_arg2)
+            ax_textbox_1.set_visible(True)
+            ax_textbox_2.set_visible(True)
+        else:
+            ax_slider_1.set_visible(False)
+            ax_slider_2.set_visible(False)
+            ax_textbox_1.set_visible(False)
+            ax_textbox_2.set_visible(False)
+    else:   # keeping this currently semi-redundant else statement in case we need to separate the above IFs at some point
+        with eventsoff(radiobutton_slice_type):
+            radiobutton_slice_type.set_active(0)
         ax_slider_1.set_visible(False)
         ax_slider_2.set_visible(False)
         ax_textbox_1.set_visible(False)
@@ -800,11 +868,22 @@ def update_widgets_visibility():
     if current_layer.get_is_bkg_layer():
         ax_textbox_vmin.set_visible(True)
         ax_textbox_vmax.set_visible(True)
-        textbox_vmin.set_val(str(current_layer.vmin_pc))
-        textbox_vmax.set_val(str(current_layer.vmax_pc))
+        with eventsoff(textbox_vmin):
+            textbox_vmin.set_val(str(current_layer.vmin_pc))
+        with eventsoff(textbox_vmax):
+            textbox_vmax.set_val(str(current_layer.vmax_pc))
+        ax_textbox_contour_factor.set_visible(False)
+        ax_textbox_contour_base.set_visible(False)
     else:
+        ax_textbox_contour_factor.set_visible(True)
+        ax_textbox_contour_base.set_visible(True)
+        with eventsoff(textbox_contour_factor):
+            textbox_contour_factor.set_val(str(current_layer.levels_factor))
+        with eventsoff(textbox_contour_base):
+            textbox_contour_base.set_val(str(current_layer.levels_base))
         ax_textbox_vmin.set_visible(False)
         ax_textbox_vmax.set_visible(False)
+    
 
     fig.canvas.draw_idle()
 

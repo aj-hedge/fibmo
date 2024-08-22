@@ -6,7 +6,17 @@ Additionally, small features are included for quality-of-life analysis of the da
 > [!IMPORTANT]
 > This is a very early development project. What you see should not be judged as complete nor professional.
 
+## Features
+- Intelligently reads and interprets FITS files (to some capacity)
+- Organises data into `ImageLayers`, controlled by a `LayerManager`
+  - Switch between layers to modify their representation
+    - Set the vmin/vmax percentage of the background layer
+    - Select a slice method and the slice section for collapsing 3D cubes
+  - Projects non-background layers onto the WCS of the background layer
+  - Get `SkyCoord` information upon clicking the left mouse button at a cursor position
+    - Choose the output stream to write the logged `SkyCoord`
+  - The plot is in an interactive `matplotlib.pyplot` figure, allowing for zooming and panning
+
 ## TODO
-- [x] Tkinter file browsing
-- [x] Multiple contours
+- [ ] Optimise initialisation without any data
 - [ ] Support for more wavelengths
