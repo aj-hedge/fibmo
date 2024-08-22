@@ -7,6 +7,6 @@ Additionally, small features are included for quality-of-life analysis of the da
 > This is a very early development project. What you see should not be judged as complete nor professional.
 
 ## TODO
-- [ ] Tkinter file browsing
-- [ ] Multiple contours
+- [x] Tkinter file browsing
+- [x] Multiple contours
 - [ ] Support for more wavelengths
