@@ -17,6 +17,18 @@ Additionally, small features are included for quality-of-life analysis of the da
     - Choose the output stream to write the logged `SkyCoord`
   - The plot is in an interactive `matplotlib.pyplot` figure, allowing for zooming and panning
 
+## Requirements
+- Python >= 3.10
+- Astropy (to-check)
+- Matplotlib (to-check)
+- Numpy (to-check)
+- tkinter/Tk (to-check)
+- reproject (to-check)
+
 ## TODO
+- [ ] Containerisation to ease dependencies/requirements
+- [ ] Layer control: name, cmap, contour colour
+- [ ] Update layers list display: text wrapping, indicate current background layer, indicate contour colour
+- [ ] Support for more matplotlib backends
 - [ ] Optimise initialisation without any data
 - [ ] Support for more wavelengths
